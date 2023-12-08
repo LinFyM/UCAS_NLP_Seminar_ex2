@@ -34,21 +34,24 @@ class RNN(nn.Module):
         # 初始化线性层
         self.fc = nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, x):
+    def forward(self, x, lengths):
         x = x.transpose(0, 1)
 
         # 根据embedding层得到文本向量
         embedded = self.embedding(x)
 
-        # 初始化RNN隐层向量(全0)
-        h0 = torch.zeros(1, x.size(1), self.rnn.hidden_size, device=device)
+        # 使用 pack_padded_sequence 来打包输入序列
+        packed_embedded = nn.utils.rnn.pack_padded_sequence(embedded, lengths)
 
         # 输入至循环神经网络,得到最后的隐藏层表示 [batch_size, hidden_dim]
-        output, hidden = self.rnn(embedded, h0)
+        packed_output, hidden = self.rnn(packed_embedded)
+
+        # 使用 pad_packed_sequence 来解包输出序列
+        output, output_lengths = nn.utils.rnn.pad_packed_sequence(packed_output)
 
         # 应用dropout
         hidden = self.dropout(hidden.squeeze(0))
-        
+
         # 映射得到最终概率 [batch_size, output_dim]
         logits = self.fc(hidden)
 
@@ -86,8 +89,8 @@ def train(model, config, train_dataset, eval_dataset):
     for epoch in range(config.num_epoch):
         progress_bar = tqdm(train_dataset, desc=f'Epoch {epoch}')
         for data in progress_bar:
-            inputs, labels = data[0].to(device), data[1].to(device)
-            logits = model(inputs)
+            inputs, labels, lengths = data[0].to(device), data[1].to(device), data[2]
+            logits = model(inputs, lengths)
             loss = CE(logits, labels)
             loss.backward()
             optimizer.step()
@@ -111,8 +114,8 @@ def evaluate(model, eval_dataset):
     total = 0
     with torch.no_grad(): 
         for data in eval_dataset:
-            inputs, labels = data[0].to(device), data[1].to(device)
-            outputs = model(inputs)
+            inputs, labels, lengths = data[0].to(device), data[1].to(device), data[2]
+            outputs = model(inputs, lengths)
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
@@ -123,15 +126,17 @@ def evaluate(model, eval_dataset):
 
 def collate_fn(data):
     pad_idx = 8019
+    data.sort(key=lambda x: len(x[0]), reverse=True)  # 对输入序列进行排序
     texts = [d[0] for d in data]
     label = [d[1] for d in data]
+    lengths = [len(t) for t in texts]
     batch_size = len(texts)
-    max_length = max([len(t) for t in texts])
+    max_length = max(lengths)
     text_ids = torch.ones((batch_size, max_length)).long().fill_(pad_idx)
     label_ids = torch.tensor(label).long()
     for idx, text in enumerate(texts):
         text_ids[idx, :len(text)] = torch.tensor(text)
-    return text_ids, label_ids
+    return text_ids, label_ids, lengths  # 返回长度
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -139,9 +144,9 @@ if __name__ == '__main__':
     parser.add_argument('--train', default='./train.jsonl')
     parser.add_argument('--test', default='./test.jsonl')
     parser.add_argument('--val', default='./val.jsonl')
-    parser.add_argument('--num_epoch', default=25, type=int)
+    parser.add_argument('--num_epoch', default=20, type=int)
     parser.add_argument('--lr', default=0.0005, type=float)
-    parser.add_argument('--batch_size', default=1, type=int)
+    parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--eval_interval', default=100, type=int)
     parser.add_argument('--vocab', default='./vocab.json')
     parser.add_argument('--hidden_dim', default=300, type=int)
