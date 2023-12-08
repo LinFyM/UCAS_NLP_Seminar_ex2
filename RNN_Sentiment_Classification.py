@@ -1,5 +1,5 @@
 import torch
-torch.backends.cudnn.enabled = False
+# torch.backends.cudnn.enabled = False
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import random
@@ -36,30 +36,22 @@ class RNN(nn.Module):
 
     def forward(self, x):
         x = x.transpose(0, 1)
-        # print(f"x shape: {x.shape}")
 
         # 根据embedding层得到文本向量
         embedded = self.embedding(x)
-        # print(f"embedded shape: {embedded.shape}")
 
         # 初始化RNN隐层向量(全0)
         h0 = torch.zeros(1, x.size(1), self.rnn.hidden_size, device=device)
-        # print(f"h0 shape: {h0.shape}")
 
         # 输入至循环神经网络,得到最后的隐藏层表示 [batch_size, hidden_dim]
         output, hidden = self.rnn(embedded, h0)
-        # print(f"hidden shape: {hidden.shape}")
-
-        hidden = hidden[:, -1, :]
 
         # 应用dropout
-        hidden = self.dropout(hidden)
-        # hidden = self.dropout(hidden.squeeze(0))
-        # print(f"hidden shape: {hidden.shape}")
+        hidden = self.dropout(hidden.squeeze(0))
         
         # 映射得到最终概率 [batch_size, output_dim]
         logits = self.fc(hidden)
-        # print(f"logits shape: {logits.shape}")
+
         return logits
 
 class SentimentDataset(Dataset):
@@ -87,7 +79,6 @@ class SentimentDataset(Dataset):
     
 def train(model, config, train_dataset, eval_dataset):
     CE = nn.CrossEntropyLoss()
-    # CE = nn.L1Loss()
     optimizer = optim.Adam(model.parameters(), lr=config.lr)
     model.train()
     global_step = 0
@@ -97,9 +88,6 @@ def train(model, config, train_dataset, eval_dataset):
         for data in progress_bar:
             inputs, labels = data[0].to(device), data[1].to(device)
             logits = model(inputs)
-
-            # print(logits.shape, labels.shape)
-
             loss = CE(logits, labels)
             loss.backward()
             optimizer.step()
@@ -118,10 +106,10 @@ def train(model, config, train_dataset, eval_dataset):
     return
 
 def evaluate(model, eval_dataset):
-    model.eval()  # 设置模型为评估模式
+    model.eval()
     correct = 0
     total = 0
-    with torch.no_grad():  # 在评估模式下，我们不需要计算梯度
+    with torch.no_grad(): 
         for data in eval_dataset:
             inputs, labels = data[0].to(device), data[1].to(device)
             outputs = model(inputs)
@@ -130,11 +118,11 @@ def evaluate(model, eval_dataset):
             correct += (predicted == labels).sum().item()
 
     accuracy = correct / total
-    model.train()  # 设置模型为训练模式
+    model.train()
     return accuracy
 
 def collate_fn(data):
-    pad_idx = 8091
+    pad_idx = 8019
     texts = [d[0] for d in data]
     label = [d[1] for d in data]
     batch_size = len(texts)
@@ -153,7 +141,7 @@ if __name__ == '__main__':
     parser.add_argument('--val', default='./val.jsonl')
     parser.add_argument('--num_epoch', default=25, type=int)
     parser.add_argument('--lr', default=0.0005, type=float)
-    parser.add_argument('--batch_size', default=4, type=int)
+    parser.add_argument('--batch_size', default=1, type=int)
     parser.add_argument('--eval_interval', default=100, type=int)
     parser.add_argument('--vocab', default='./vocab.json')
     parser.add_argument('--hidden_dim', default=300, type=int)
@@ -167,11 +155,6 @@ if __name__ == '__main__':
     train_loader = DataLoader(train_dataset, batch_size=arg.batch_size, collate_fn=collate_fn)
     val_loader = DataLoader(val_dataset, batch_size=arg.batch_size, collate_fn=collate_fn)
     test_loader = DataLoader(test_dataset, batch_size=1, collate_fn=collate_fn)
-
-    # print('Total samples:', len(train_dataset))
-    # print('Total batches:', len(train_loader))
-    # for i, data in enumerate(train_loader):
-    #     print('Batch', i, 'size:', data[0].size(0))
 
     chr_vocab = json.load(open(arg.vocab, 'r', encoding='utf-8'))
 
@@ -199,3 +182,4 @@ if __name__ == '__main__':
     print('Test Accuracy: {:.2f}%'.format(accuracy * 100))    
     print('Learning Rate: {}'.format(arg.lr))
     print('Dropout Rate: {}'.format(arg.dropout))
+    print('Batch Size: {}'.format(arg.batch_size))
